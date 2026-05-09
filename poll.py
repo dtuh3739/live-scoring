@@ -26,9 +26,12 @@ from __future__ import annotations
 import json
 import os
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import requests
+
+GAME_WINDOW_HOURS = 4  # how long after kick-off we treat a game as potentially active
 
 ODDS_API_KEY = os.environ["ODDS_API_KEY"]
 SLACK_WEBHOOK_URL = os.environ["SLACK_WEBHOOK_URL"]
@@ -146,6 +149,43 @@ def load_state() -> dict:
 def save_state(state: dict) -> None:
     STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
     STATE_PATH.write_text(json.dumps(state, indent=2, sort_keys=True))
+
+
+def _game_in_window(commence_time_str: str, now: datetime) -> bool:
+    try:
+        commence = datetime.fromisoformat(commence_time_str.replace("Z", "+00:00"))
+    except ValueError:
+        return True
+    return (commence - timedelta(minutes=30)) <= now <= (commence + timedelta(hours=GAME_WINDOW_HOURS))
+
+
+def should_poll_sport(sport: str, tracked: list[dict], state: dict, now: datetime) -> bool:
+    """Return True if any tracked game for this sport needs a live API call.
+
+    Skips the call if all games have a cached commence_time outside the active
+    window, or are already completed.  Defaults to True (poll) when unsure —
+    e.g. first run before any state is cached.
+    """
+    sport_games = [g for g in tracked if g["sport"] == sport]
+    for tg in sport_games:
+        a, b = tg["home_team"].lower(), tg["away_team"].lower()
+        cached = next(
+            (gs for gs in state.values()
+             if gs.get("home_team") and gs.get("away_team")
+             and _matches_team(a, gs["home_team"])
+             and _matches_team(b, gs["away_team"])),
+            None,
+        )
+        if cached is None:
+            return True  # never seen — must discover
+        if cached.get("completed"):
+            continue  # already finished, no need to poll
+        commence = cached.get("commence_time")
+        if not commence:
+            return True  # no time cached yet — poll to get it
+        if _game_in_window(commence, now):
+            return True
+    return False
 
 
 def fetch_scores(sport_key: str) -> list[dict]:
@@ -301,10 +341,17 @@ def main() -> int:
     state = load_state()
     new_state: dict = {}
     notifications = 0
+    now = datetime.now(timezone.utc)
 
     sports = sorted({g["sport"] for g in tracked})
     print(f"Polling {len(sports)} sport(s) for {len(tracked)} tracked game(s)")
-    api_games_by_sport = {sport: fetch_scores(sport) for sport in sports}
+    api_games_by_sport: dict = {}
+    for sport in sports:
+        if should_poll_sport(sport, tracked, state, now):
+            api_games_by_sport[sport] = fetch_scores(sport)
+        else:
+            print(f"  {sport}: no active games in window — skipping API call")
+            api_games_by_sport[sport] = []
 
     for tg in tracked:
         sport = tg["sport"]
@@ -326,6 +373,7 @@ def main() -> int:
             "completed": completed,
             "home_team": api_game["home_team"],
             "away_team": api_game["away_team"],
+            "commence_time": api_game.get("commence_time"),
         }
 
         if prev is None:
