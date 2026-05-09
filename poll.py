@@ -66,6 +66,7 @@ def parse_games_message(text: str) -> list[dict]:
         if len(parts) < 2:
             continue
         sport_raw, rest = parts
+        sport_raw = sport_raw.rstrip(":")  # handle "nrl:" or "afl:"
 
         tipped = None
         if " tip " in rest.lower():
@@ -73,11 +74,17 @@ def parse_games_message(text: str) -> list[dict]:
             tipped = rest[idx + 5:].strip()
             rest = rest[:idx].strip()
 
-        if " vs " not in rest.lower():
+        # accept both " vs " and " v " as separator
+        rest_lower = rest.lower()
+        if " vs " in rest_lower:
+            sep, sep_len = " vs ", 4
+        elif " v " in rest_lower:
+            sep, sep_len = " v ", 3
+        else:
             continue
-        idx = rest.lower().index(" vs ")
+        idx = rest_lower.index(sep)
         home = rest[:idx].strip()
-        away = rest[idx + 4:].strip()
+        away = rest[idx + sep_len:].strip()
 
         sport = SPORT_ALIASES.get(sport_raw.lower(), sport_raw.lower())
         game: dict = {"sport": sport, "home_team": home, "away_team": away}
