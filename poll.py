@@ -1,7 +1,8 @@
 """
 Score polling agent.
 
-Reads tracked games from config/games.json, calls The Odds API scores endpoint
+Reads tracked games from Slack (if SLACK_BOT_TOKEN + SLACK_GAMES_CHANNEL are
+set) or falls back to config/games.json.  Calls The Odds API scores endpoint
 for each unique sport, diffs against last known state, and pings Slack on any
 change (score movement or final whistle).
 
@@ -10,6 +11,14 @@ State is persisted in state/last_scores.json (committed back by GitHub Actions).
 Required env vars:
     ODDS_API_KEY          — from the-odds-api.com
     SLACK_WEBHOOK_URL     — incoming webhook URL from Slack
+
+Optional env vars (enable Slack-based game config):
+    SLACK_BOT_TOKEN       — xoxb-... bot token with channels:history scope
+    SLACK_GAMES_CHANNEL   — channel ID (e.g. C01234ABC) where you post games
+
+Slack message format (one game per line):
+    nrl Storm vs Bulldogs tip Storm
+    afl Carlton vs Collingwood tip Collingwood
 """
 
 from __future__ import annotations
@@ -29,6 +38,92 @@ CONFIG_PATH = ROOT / "config" / "games.json"
 STATE_PATH = ROOT / "state" / "last_scores.json"
 
 ODDS_API_BASE = "https://api.the-odds-api.com/v4"
+SLACK_API_BASE = "https://slack.com/api"
+
+SPORT_ALIASES = {
+    "nrl": "rugbyleague_nrl",
+    "afl": "aussierules_afl",
+    "nba": "basketball_nba",
+    "nfl": "americanfootball_nfl",
+    "nhl": "icehockey_nhl",
+    "mlb": "baseball_mlb",
+    "epl": "soccer_epl",
+    "afl_w": "aussierules_afl_womens",
+}
+
+
+def parse_games_message(text: str) -> list[dict]:
+    """Parse a Slack message into a games list.
+
+    Each line: <sport> <home> vs <away> [tip <team>]
+    """
+    games = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        parts = line.split(None, 1)
+        if len(parts) < 2:
+            continue
+        sport_raw, rest = parts
+
+        tipped = None
+        if " tip " in rest.lower():
+            idx = rest.lower().index(" tip ")
+            tipped = rest[idx + 5:].strip()
+            rest = rest[:idx].strip()
+
+        if " vs " not in rest.lower():
+            continue
+        idx = rest.lower().index(" vs ")
+        home = rest[:idx].strip()
+        away = rest[idx + 4:].strip()
+
+        sport = SPORT_ALIASES.get(sport_raw.lower(), sport_raw.lower())
+        game: dict = {"sport": sport, "home_team": home, "away_team": away}
+        if tipped:
+            game["tipped"] = tipped
+        games.append(game)
+    return games
+
+
+def fetch_games_from_slack() -> list[dict] | None:
+    """Read the most recent games-config message from the Slack channel.
+
+    Returns None if env vars aren't set or the call fails (caller falls back
+    to config/games.json).
+    """
+    token = os.environ.get("SLACK_BOT_TOKEN")
+    channel = os.environ.get("SLACK_GAMES_CHANNEL")
+    if not token or not channel:
+        return None
+
+    try:
+        r = requests.get(
+            f"{SLACK_API_BASE}/conversations.history",
+            headers={"Authorization": f"Bearer {token}"},
+            params={"channel": channel, "limit": 20},
+            timeout=10,
+        )
+    except requests.RequestException as e:
+        print(f"  ⚠️  Slack read error: {e}", file=sys.stderr)
+        return None
+
+    if not r.ok:
+        print(f"  ⚠️  Slack read error: HTTP {r.status_code}", file=sys.stderr)
+        return None
+
+    data = r.json()
+    if not data.get("ok"):
+        print(f"  ⚠️  Slack API error: {data.get('error')}", file=sys.stderr)
+        return None
+
+    for msg in data.get("messages", []):
+        games = parse_games_message(msg.get("text", ""))
+        if games:
+            return games
+
+    return None
 
 
 def load_config() -> dict:
@@ -184,10 +279,16 @@ def post_to_slack(payload: dict) -> None:
 
 
 def main() -> int:
-    config = load_config()
-    tracked = config.get("games", [])
+    slack_games = fetch_games_from_slack()
+    if slack_games is not None:
+        tracked = slack_games
+        print(f"Using {len(tracked)} game(s) from Slack")
+    else:
+        config = load_config()
+        tracked = config.get("games", [])
+
     if not tracked:
-        print("No games to track — edit config/games.json")
+        print("No games to track — post a games list to Slack or edit config/games.json")
         return 0
 
     state = load_state()

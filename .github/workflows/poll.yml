@@ -35,6 +35,8 @@ jobs:
         env:
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_GAMES_CHANNEL: ${{ secrets.SLACK_GAMES_CHANNEL }}
         run: python poll.py
 
       - name: Commit state file
