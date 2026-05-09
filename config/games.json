@@ -1,0 +1,29 @@
+{
+  "_comment": "Edit this file each week with your tipped games. Team names can be partial — 'Storm' will match 'Melbourne Storm'. The 'tipped' field is optional but lets the Slack message show whether your tip is winning/losing/won/lost.",
+  "games": [
+    {
+      "sport": "rugbyleague_nrl",
+      "home_team": "Storm",
+      "away_team": "Bulldogs",
+      "tipped": "Storm"
+    },
+    {
+      "sport": "rugbyleague_nrl",
+      "home_team": "Panthers",
+      "away_team": "Roosters",
+      "tipped": "Panthers"
+    },
+    {
+      "sport": "aussierules_afl",
+      "home_team": "Carlton",
+      "away_team": "Collingwood",
+      "tipped": "Collingwood"
+    },
+    {
+      "sport": "aussierules_afl",
+      "home_team": "Geelong",
+      "away_team": "Brisbane",
+      "tipped": "Brisbane"
+    }
+  ]
+}
