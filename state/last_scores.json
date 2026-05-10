@@ -10,9 +10,8 @@
     }
   },
   "_no_match_alerts": {
-    "aussierules_afl:adelaide:richmond": true,
-    "rugbyleague_nrl:panthers:raiders": true,
-    "rugbyleague_nrl:storm:tigers": true
+    ":warning:*game not found in api:* adelaide:richmond": true,
+    "`afl:adelaide:richmond": true
   },
   "f88a8cb2ae06c12f2274d19a0d1087fc": {
     "away_team": "Wests Tigers",
