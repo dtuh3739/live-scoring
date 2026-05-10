@@ -443,16 +443,18 @@ def main() -> int:
             except requests.HTTPError as e:
                 print(f"  ❌ Slack error for {label}: {e}", file=sys.stderr)
         else:
-            if curr_score is not None and not completed:
+            display_score = curr_score or prev_score
+            if display_score is not None and not completed:
                 home = api_game["home_team"]
                 away = api_game["away_team"]
-                home_s = curr_score.get(home, 0)
-                away_s = curr_score.get(away, 0)
+                home_s = display_score.get(home, 0)
+                away_s = display_score.get(away, 0)
                 time_str = now.astimezone(AEST).strftime("%-I:%M%p").lower()
+                suffix = " · HT" if curr_score is None else ""
                 try:
-                    post_to_slack({"text": f"⏱ {time_str} · {home} *{home_s}* – *{away_s}* {away}"})
+                    post_to_slack({"text": f"⏱ {time_str} · {home} *{home_s}* – *{away_s}* {away}{suffix}"})
                     notifications += 1
-                    print(f"  📤 TICK: {label} {curr_score}")
+                    print(f"  📤 TICK: {label} {display_score}")
                 except requests.HTTPError as e:
                     print(f"  ❌ Slack error for {label}: {e}", file=sys.stderr)
             else:
