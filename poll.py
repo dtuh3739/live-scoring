@@ -440,7 +440,19 @@ def main() -> int:
             except requests.HTTPError as e:
                 print(f"  ❌ Slack error for {label}: {e}", file=sys.stderr)
         else:
-            print(f"  · {label}: no change")
+            if curr_score is not None and not completed:
+                home = api_game["home_team"]
+                away = api_game["away_team"]
+                home_s = curr_score.get(home, 0)
+                away_s = curr_score.get(away, 0)
+                try:
+                    post_to_slack({"text": f"⏱ {home} *{home_s}* – *{away_s}* {away}"})
+                    notifications += 1
+                    print(f"  📤 TICK: {label} {curr_score}")
+                except requests.HTTPError as e:
+                    print(f"  ❌ Slack error for {label}: {e}", file=sys.stderr)
+            else:
+                print(f"  · {label}: no change")
 
     # Preserve prior state for games we didn't see this run (e.g. far-future games)
     for gid, prev in state.items():
