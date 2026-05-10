@@ -28,6 +28,9 @@ import os
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
+
+AEST = ZoneInfo("Australia/Sydney")
 
 import requests
 
@@ -445,8 +448,9 @@ def main() -> int:
                 away = api_game["away_team"]
                 home_s = curr_score.get(home, 0)
                 away_s = curr_score.get(away, 0)
+                time_str = now.astimezone(AEST).strftime("%-I:%M%p").lower()
                 try:
-                    post_to_slack({"text": f"⏱ {home} *{home_s}* – *{away_s}* {away}"})
+                    post_to_slack({"text": f"⏱ {time_str} · {home} *{home_s}* – *{away_s}* {away}"})
                     notifications += 1
                     print(f"  📤 TICK: {label} {curr_score}")
                 except requests.HTTPError as e:
