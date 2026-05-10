@@ -22,7 +22,7 @@
   "fff365ac1beade5b1086164db06a2450": {
     "away_team": "Penrith Panthers",
     "commence_time": "2026-05-10T06:05:00Z",
-    "completed": false,
+    "completed": true,
     "home_team": "Canberra Raiders",
     "score": {
       "Canberra Raiders": 18,
