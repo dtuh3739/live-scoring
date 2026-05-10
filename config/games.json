@@ -10,20 +10,14 @@
     {
       "sport": "rugbyleague_nrl",
       "home_team": "Panthers",
-      "away_team": "Roosters",
+      "away_team": "Raiders",
       "tipped": "Panthers"
     },
     {
       "sport": "aussierules_afl",
-      "home_team": "Carlton",
-      "away_team": "Collingwood",
-      "tipped": "Collingwood"
-    },
-    {
-      "sport": "aussierules_afl",
-      "home_team": "Geelong",
-      "away_team": "Brisbane",
-      "tipped": "Brisbane"
+      "home_team": "Adelaide",
+      "away_team": "Richmond",
+      "tipped": "Adelaide"
     }
   ]
 }
