@@ -5,8 +5,8 @@
     "completed": false,
     "home_team": "Richmond Tigers",
     "score": {
-      "Adelaide Crows": 22,
-      "Richmond Tigers": 27
+      "Adelaide Crows": 23,
+      "Richmond Tigers": 33
     }
   },
   "f88a8cb2ae06c12f2274d19a0d1087fc": {
@@ -21,7 +21,7 @@
   },
   "fff365ac1beade5b1086164db06a2450": {
     "away_team": "Penrith Panthers",
-    "commence_time": "2026-05-10T06:05:00Z",
+    "commence_time": "2026-05-10T06:06:00Z",
     "completed": false,
     "home_team": "Canberra Raiders",
     "score": null
