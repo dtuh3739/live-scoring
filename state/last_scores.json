@@ -6,13 +6,13 @@
     "home_team": "Richmond Tigers",
     "score": {
       "Adelaide Crows": 22,
-      "Richmond Tigers": 21
+      "Richmond Tigers": 27
     }
   },
   "f88a8cb2ae06c12f2274d19a0d1087fc": {
     "away_team": "Wests Tigers",
     "commence_time": "2026-05-10T04:00:00Z",
-    "completed": false,
+    "completed": true,
     "home_team": "Melbourne Storm",
     "score": {
       "Melbourne Storm": 44,
