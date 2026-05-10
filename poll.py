@@ -325,11 +325,33 @@ def post_to_slack(payload: dict) -> None:
     r.raise_for_status()
 
 
+_SPORT_ALIASES_INV = {v: k for k, v in SPORT_ALIASES.items()}
+
+
+def _alert_no_match(tg: dict, label: str) -> None:
+    sport_short = _SPORT_ALIASES_INV.get(tg["sport"], tg["sport"])
+    tip_part = f" tip {tg['tipped']}" if tg.get("tipped") else ""
+    example = f"{sport_short} {tg['home_team']} vs {tg['away_team']}{tip_part}"
+    text = (
+        f"⚠️ *Game not found in API:* {label}\n"
+        f"Check your Slack game config. To fix, post:\n"
+        f"`{example}`"
+    )
+    try:
+        post_to_slack({"text": text})
+    except Exception as e:
+        print(f"  ❌ Could not send no-match alert: {e}", file=sys.stderr)
+
+
 def main() -> int:
     slack_games = fetch_games_from_slack()
     if slack_games is not None:
         tracked = slack_games
-        print(f"Using {len(tracked)} game(s) from Slack")
+        print(f"Using {len(tracked)} game(s) from Slack:")
+        for g in tracked:
+            sport_short = _SPORT_ALIASES_INV.get(g["sport"], g["sport"])
+            tip_part = f" (tip: {g['tipped']})" if g.get("tipped") else ""
+            print(f"  • {sport_short} {g['home_team']} vs {g['away_team']}{tip_part}")
     else:
         config = load_config()
         tracked = config.get("games", [])
@@ -339,28 +361,45 @@ def main() -> int:
         return 0
 
     state = load_state()
+    no_match_alerts = state.get("_no_match_alerts", {})
     new_state: dict = {}
     notifications = 0
     now = datetime.now(timezone.utc)
 
     sports = sorted({g["sport"] for g in tracked})
     print(f"Polling {len(sports)} sport(s) for {len(tracked)} tracked game(s)")
+    polled_sports: set[str] = set()
     api_games_by_sport: dict = {}
     for sport in sports:
         if should_poll_sport(sport, tracked, state, now):
             api_games_by_sport[sport] = fetch_scores(sport)
+            polled_sports.add(sport)
         else:
             print(f"  {sport}: no active games in window — skipping API call")
             api_games_by_sport[sport] = []
 
+    new_no_match_alerts: dict = {}
     for tg in tracked:
         sport = tg["sport"]
         api_game = match_game(tg, api_games_by_sport.get(sport, []))
         label = f"{tg['home_team']} vs {tg['away_team']}"
+        alert_key = f"{sport}:{tg['home_team'].lower()}:{tg['away_team'].lower()}"
 
         if not api_game:
-            print(f"  • {label}: no match in API response yet")
+            # Alert once via Slack when we polled but couldn't find the game
+            if sport in polled_sports and not no_match_alerts.get(alert_key):
+                print(f"  ⚠️  {label}: no match — sending Slack alert")
+                _alert_no_match(tg, label)
+                new_no_match_alerts[alert_key] = True
+            elif no_match_alerts.get(alert_key):
+                new_no_match_alerts[alert_key] = True  # keep suppressed
+                print(f"  • {label}: no match (alert already sent)")
+            else:
+                print(f"  • {label}: no match in API response yet")
             continue
+
+        # Game found — clear any prior no-match alert so it can re-fire if config drifts again
+        # (alert_key intentionally not carried to new_no_match_alerts)
 
         gid = api_game["id"]
         curr_score = get_score_dict(api_game)
@@ -405,7 +444,11 @@ def main() -> int:
 
     # Preserve prior state for games we didn't see this run (e.g. far-future games)
     for gid, prev in state.items():
-        new_state.setdefault(gid, prev)
+        if not gid.startswith("_"):
+            new_state.setdefault(gid, prev)
+
+    if new_no_match_alerts:
+        new_state["_no_match_alerts"] = new_no_match_alerts
 
     save_state(new_state)
     print(f"\nDone. {notifications} notification(s) sent.")
