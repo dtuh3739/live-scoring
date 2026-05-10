@@ -2,7 +2,7 @@
   "736efcd8a6a1108347aeb23a041c27ff": {
     "away_team": "Adelaide Crows",
     "commence_time": "2026-05-10T05:15:00Z",
-    "completed": false,
+    "completed": true,
     "home_team": "Richmond Tigers",
     "score": {
       "Adelaide Crows": 98,
