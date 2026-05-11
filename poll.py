@@ -56,12 +56,17 @@ SPORT_ALIASES = {
     "epl": "soccer_epl",
     "afl_w": "aussierules_afl_womens",
 }
+KNOWN_SPORTS = set(SPORT_ALIASES) | set(SPORT_ALIASES.values())
 
 
 def parse_games_message(text: str) -> list[dict]:
     """Parse a Slack message into a games list.
 
     Each line: <sport> <home> vs <away> [tip <team>]
+
+    Lines whose first token isn't a known sport are ignored — this stops the
+    bot from interpreting its own alert messages (re-read from the games
+    channel) as new config entries.
     """
     games = []
     for line in text.splitlines():
@@ -72,7 +77,9 @@ def parse_games_message(text: str) -> list[dict]:
         if len(parts) < 2:
             continue
         sport_raw, rest = parts
-        sport_raw = sport_raw.rstrip(":")  # handle "nrl:" or "afl:"
+        sport_raw = sport_raw.rstrip(":").lower()  # handle "nrl:" or "afl:"
+        if sport_raw not in KNOWN_SPORTS:
+            continue  # ignore non-game lines (warnings, code blocks, chatter)
 
         tipped = None
         if " tip " in rest.lower():
@@ -92,7 +99,7 @@ def parse_games_message(text: str) -> list[dict]:
         home = rest[:idx].strip()
         away = rest[idx + sep_len:].strip()
 
-        sport = SPORT_ALIASES.get(sport_raw.lower(), sport_raw.lower())
+        sport = SPORT_ALIASES.get(sport_raw, sport_raw)
         game: dict = {"sport": sport, "home_team": home, "away_team": away}
         if tipped:
             game["tipped"] = tipped
