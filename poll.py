@@ -162,6 +162,41 @@ def _game_in_window(commence_time_str: str, now: datetime) -> bool:
     return (commence - timedelta(minutes=30)) <= now <= (commence + timedelta(hours=GAME_WINDOW_HOURS))
 
 
+def _find_cached(tg: dict, state: dict) -> dict | None:
+    """Look up a tracked game in cached state, matching either orientation.
+
+    Tracked teams can be partial ("Storm") and the user may flip home/away
+    relative to how the API names the fixture — so we try both directions.
+    """
+    a, b = tg["home_team"].lower(), tg["away_team"].lower()
+    for gs in state.values():
+        if not isinstance(gs, dict):
+            continue
+        h, w = gs.get("home_team"), gs.get("away_team")
+        if not h or not w:
+            continue
+        if (_matches_team(a, h) and _matches_team(b, w)) or \
+           (_matches_team(a, w) and _matches_team(b, h)):
+            return gs
+    return None
+
+
+def _is_expired(cached: dict | None, now: datetime) -> bool:
+    """True once the game is completed or its polling window has fully passed."""
+    if not cached:
+        return False
+    if cached.get("completed"):
+        return True
+    commence_str = cached.get("commence_time")
+    if not commence_str:
+        return False
+    try:
+        commence = datetime.fromisoformat(commence_str.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return now > commence + timedelta(hours=GAME_WINDOW_HOURS)
+
+
 def should_poll_sport(sport: str, tracked: list[dict], state: dict, now: datetime) -> bool:
     """Return True if any tracked game for this sport needs a live API call.
 
@@ -169,16 +204,10 @@ def should_poll_sport(sport: str, tracked: list[dict], state: dict, now: datetim
     window, or are already completed.  Defaults to True (poll) when unsure —
     e.g. first run before any state is cached.
     """
-    sport_games = [g for g in tracked if g["sport"] == sport]
-    for tg in sport_games:
-        a, b = tg["home_team"].lower(), tg["away_team"].lower()
-        cached = next(
-            (gs for gs in state.values()
-             if gs.get("home_team") and gs.get("away_team")
-             and _matches_team(a, gs["home_team"])
-             and _matches_team(b, gs["away_team"])),
-            None,
-        )
+    for tg in tracked:
+        if tg["sport"] != sport:
+            continue
+        cached = _find_cached(tg, state)
         if cached is None:
             return True  # never seen — must discover
         if cached.get("completed"):
@@ -369,6 +398,24 @@ def main() -> int:
     notifications = 0
     now = datetime.now(timezone.utc)
 
+    # Drop games whose polling window has fully closed (completed, or
+    # commence_time + GAME_WINDOW_HOURS is in the past). Avoids spamming
+    # "Game not found in API" once a fixture rolls off the scores endpoint.
+    fresh_tracked = []
+    for tg in tracked:
+        cached = _find_cached(tg, state)
+        if _is_expired(cached, now):
+            label = f"{tg['home_team']} vs {tg['away_team']}"
+            print(f"  · {label}: window closed — skipping")
+            continue
+        fresh_tracked.append(tg)
+    tracked = fresh_tracked
+
+    if not tracked:
+        save_state(state)
+        print("No active games in window.")
+        return 0
+
     sports = sorted({g["sport"] for g in tracked})
     print(f"Polling {len(sports)} sport(s) for {len(tracked)} tracked game(s)")
     polled_sports: set[str] = set()
@@ -389,12 +436,15 @@ def main() -> int:
         alert_key = f"{sport}:{tg['home_team'].lower()}:{tg['away_team'].lower()}"
 
         if not api_game:
-            # Alert once via Slack when we polled but couldn't find the game
-            if sport in polled_sports and not no_match_alerts.get(alert_key):
+            already_alerted = no_match_alerts.get(alert_key) or new_no_match_alerts.get(alert_key)
+            # Alert once via Slack when we polled but couldn't find the game.
+            # Check new_no_match_alerts too so duplicate lines in the same
+            # Slack config message only trigger one alert per cycle.
+            if sport in polled_sports and not already_alerted:
                 print(f"  ⚠️  {label}: no match — sending Slack alert")
                 _alert_no_match(tg, label)
                 new_no_match_alerts[alert_key] = True
-            elif no_match_alerts.get(alert_key):
+            elif already_alerted:
                 new_no_match_alerts[alert_key] = True  # keep suppressed
                 print(f"  • {label}: no match (alert already sent)")
             else:
