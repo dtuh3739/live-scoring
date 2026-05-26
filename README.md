@@ -5,9 +5,11 @@ A weekly betting-club companion: polls The Odds API for tipped games, pings Slac
 ## How it works
 
 1. You edit `config/games.json` each week with your tipped games.
-2. GitHub Actions runs `poll.py` every 5 minutes during footy windows.
+2. GitHub Actions starts a job twice per footy day (Thu–Sun); each job runs `poll.py` every 5 minutes for ~5 hours, covering the afternoon and evening windows.
 3. The script calls `/v4/sports/{sport}/scores/` once per unique sport, matches games by team name, diffs against `state/last_scores.json`, and posts to Slack on any change.
 4. State is committed back to the repo so the next run can diff against it.
+
+> **⚠️ The workflow is fully self-contained — do NOT add any external cron or personal access token to trigger it.** The 5-minute cadence comes from a loop *inside* the job, kicked off by GitHub's own `schedule:`. An external token (`live-scoring-cron`) firing `workflow_dispatch` every 5 minutes, 24/7, is what got the GitHub account suspended in May 2026. That token has been deleted and must stay deleted.
 
 ## Setup
 
@@ -78,14 +80,14 @@ In GitHub: **Actions → Poll scores → Run workflow**. Check the run logs — 
 
 ## Quota planning
 
-Free tier is 500 requests/month. The default cron is `*/5 7-13 * * 4,5,6,0` (every 5 min, Thu-Sun, 07:00-13:00 UTC ≈ AEST evening kickoff windows). With 3 sports tracked, that's roughly:
+Free tier is 500 requests/month. Polling runs every 5 min during footy windows — two ~5h GitHub Actions jobs per day on Thu–Sun, started by the `schedule:` crons in `.github/workflows/poll.yml` (03:00 and 08:00 UTC). With 3 sports tracked, that's roughly:
 
 - 12 polls/hour × 6 hours × 4 days × 4 weeks × 3 sports ≈ **3,500 requests/month**
 
 Options to stay within budget:
 
-- **Tighten the cron window** — narrow to specific match days/times for your tipped fixtures. Edit `cron:` in `.github/workflows/poll.yml`.
-- **Reduce polling cadence** — `*/10` (every 10 min) halves the cost.
+- **Tighten the window** — narrow the start times / shorten `duration_minutes`, or drop the second daily start. Edit `.github/workflows/poll.yml`.
+- **Reduce polling cadence** — change `sleep 300` to `sleep 600` (every 10 min) in the loop step; halves the cost.
 - **Drop unused sports** — if a given week has no AFL games, comment them out of config (the script only polls sports that appear in config).
 - **Upgrade to $30/month** — gets you 20k requests, plenty of headroom.
 
@@ -113,7 +115,7 @@ If you want kickoff alerts (first time a 0-0 game appears), it's a one-line addi
 
 ```
 score-agent/
-├── .github/workflows/poll.yml    # cron trigger + commit-state-back
+├── .github/workflows/poll.yml    # schedule → in-job 5-min poll loop + commit-state-back
 ├── config/games.json             # weekly tipped games (you edit this)
 ├── state/last_scores.json        # auto-managed; do not edit
 ├── scripts/list_sports.py        # discovery helper for sport keys
