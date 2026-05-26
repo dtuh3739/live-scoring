@@ -2,13 +2,22 @@ name: Poll scores
 
 on:
   schedule:
-    # Every 5 minutes during AU footy windows: Thu-Sun, 03:00-12:59 UTC
-    # = 13:00-22:59 AEST (winter) / 14:00-23:59 AEDT (summer)
-    # Covers 2pm kick-offs through ~10:30pm finish AEST.
-    # Time-gating in poll.py skips API calls when no tracked game is active.
+    # Two long-running starts per AU footy day (Thu-Sun). Each run then polls
+    # internally every 5 min for ~5h (see the loop step) — so the 5-minute
+    # cadence does NOT depend on GitHub's high-frequency scheduler, which
+    # silently drops ~98% of '*/5' runs. DO NOT add an external cron/PAT to
+    # trigger this workflow: doing exactly that got the account suspended.
+    # 03:00 UTC = 1pm AEST (window start); 08:00 UTC = 6pm AEST (second half).
+    # (Winter AEST = UTC+10; shifts ~1h under summer AEDT.)
     # Cron days: Thu-Sun = 4,5,6,0
-    - cron: '*/5 3-12 * * 4,5,6,0'
-  workflow_dispatch:  # allow manual runs from the Actions tab
+    - cron: '0 3 * * 4,5,6,0'
+    - cron: '0 8 * * 4,5,6,0'
+  workflow_dispatch:  # manual runs from the Actions tab
+    inputs:
+      duration_minutes:
+        description: 'Minutes to keep polling (every 5 min). Default 300 = ~5h window.'
+        required: false
+        default: '300'
 
 permissions:
   contents: write  # needed to commit state file back
@@ -33,23 +42,39 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Poll scores
+      - name: Poll scores in a loop
+        # The 5-minute cadence is driven by THIS loop, not GitHub's scheduler.
+        # Two independent guardrails stop it ever running away: the job timeout
+        # below and the iteration cap. poll.py self-gates on game windows, so
+        # cycles outside a live game are cheap (no API spend).
+        timeout-minutes: 330  # hard ceiling, safely under GitHub's 6h job cap
         env:
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           SLACK_GAMES_CHANNEL: ${{ secrets.SLACK_GAMES_CHANNEL }}
-        run: python poll.py
+        run: |
+          duration_min="${{ github.event.inputs.duration_minutes || '300' }}"
+          end=$(( $(date +%s) + duration_min * 60 ))
+          i=0
+          while [ "$(date +%s)" -lt "$end" ] && [ "$i" -lt 65 ]; do
+            echo "--- poll $((i + 1)) at $(date -u +%H:%M:%S)Z ---"
+            python poll.py || echo "  (poll failed, continuing to next cycle)"
+            i=$((i + 1))
+            [ "$(date +%s)" -lt "$end" ] && sleep 300
+          done
+          echo "Loop finished after $i poll(s)."
 
       - name: Commit state file
+        if: always()  # persist state once per job, even if the loop step timed out
         run: |
           git config user.name  "score-agent[bot]"
           git config user.email "score-agent@users.noreply.github.com"
           git add state/
           if ! git diff --staged --quiet; then
             git commit -m "chore: update state [skip ci]"
-            git pull --rebase origin master
-            git push
+            git pull --rebase origin "$GITHUB_REF_NAME"
+            git push origin "HEAD:$GITHUB_REF_NAME"
           else
             echo "No state changes to commit."
           fi
